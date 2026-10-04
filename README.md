@@ -17,7 +17,7 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
 - **Skips stale messages:** if the topic is retained, HA gets the last detection again on every restart or broker
   reconnect. Anything with a `BeginTime` older than 2 minutes is ignored.
 - Each species at most once per 15 minutes, while a new species always gets through.
-- Quiet hours 21:00–07:00.
+- Photos around the clock (owls and coyotes come out at night); the voice, when switched on, only 07:00–21:00.
 - Doesn't interrupt music or video someone else is casting to the display.
 - Photo only by default; spoken too while the "Bird announcements voice" toggle is on.
 - After 30 seconds it returns the Hub to ambient mode, but only if the bird photo is still what's showing.

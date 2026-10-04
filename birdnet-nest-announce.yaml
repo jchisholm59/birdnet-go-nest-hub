@@ -19,9 +19,6 @@ variables:
 conditions:
   # The topic is retained: skip the old message HA gets on restart/reconnect.
   - "{{ as_timestamp(bird.BeginTime, 0) > as_timestamp(now()) - 120 }}"
-  - condition: time
-    after: "07:00:00"
-    before: "21:00:00"
   # Same species at most once per 15 min (a different species always gets through).
   - "{{ last | count < 2 or last[0] != name or as_timestamp(now()) - (last[1] | float(0)) > 900 }}"
   # Don't talk over music/video someone is casting to the Hub.
@@ -32,11 +29,15 @@ actions:
       entity_id: input_text.birdnet_last_announced
     data:
       value: "{{ name }}|{{ as_timestamp(now()) | int }}"
-  # Spoken only while the "Bird announcements voice" switch is on; otherwise photo only.
+  # Spoken only while the "Bird announcements voice" switch is on, and only 07:00-21:00;
+  # otherwise photo only (photos show around the clock - owls and coyotes come out at night).
   - if:
       - condition: state
         entity_id: input_boolean.bird_announcements_voice
         state: "on"
+      - condition: time
+        after: "07:00:00"
+        before: "21:00:00"
     then:
       - action: tts.speak
         target:
