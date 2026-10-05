@@ -31,8 +31,10 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
   only raised once the cast session is open, so the session-start ding stays at the everyday volume.
 - **Photo time:** Default (30 s), 1 minute, 5 minutes or Always on. A timer helper returns the Hub to ambient mode, but
   only if the bird photo is still what's showing. Changing the setting while a bird is up applies to that bird.
-  The Hub drops a still photo by itself after about 10 minutes, so with Always on the photo is re-sent every 5 minutes
-  (same cast session, so no ding).
+  The Hub drops a still photo by itself after about 10 minutes, so with Always on the last bird is re-sent every 5
+  minutes (same cast session, so no ding). If the Hub has gone back to the clock (a reboot, someone else's cast), the
+  refresh brings the last bird back, with one ding, so not in quiet time. Turn the automation off to get the Hub's
+  usual screens back.
 - The subtitle says where and when the bird was heard ("Home · 08:32 · Cyanocitta cristata · 69%"), and optionally
   the same goes on the photo itself, upper left (see "Photo tag").
 - `mode: queued` (max 5), so a burst of detections plays one after another.
@@ -126,6 +128,11 @@ Gotcha: after restarting the cottage HA, give MQTT a minute before testing. Our 
 reconnected.
 
 ## Notes and gotchas
+- **The Hub's photo player sometimes wedges:** it accepts new photos but shows black, reports "idle", and ignores
+  everything after that until it's closed. It seems to happen more when photos are swapped quickly. After each photo
+  the automation checks that the Hub reports it showing; if not, it closes the player and sends the photo again (one
+  ding). A repeat of the bird already on screen isn't re-sent, to keep swaps down. If the Hub ever stays black,
+  rebooting it clears it.
 - **The ding:** the Hub plays a short chime each time a cast session starts. Google doesn't offer a setting for it.
   Muting around the cast removes it, but the Hub then shows big "Media off" / "Media on" panels on every mute change,
   which is worse. Turn the Hub's volume down instead, and use "Recording volume" to hear the birds.

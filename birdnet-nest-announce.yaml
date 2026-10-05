@@ -47,10 +47,18 @@ variables:
   # Draw "Home 08:32" on the photo: needs shell_command.birdnet_tag and birdnet_tag.py (README.md, "Photo tag").
   tag_photos: false
   seconds: "{{ {'Default (30 s)': 30, '1 minute': 60, '5 minutes': 300}.get(states('input_select.birdnet_display_time'), 0) }}"
+  last_photo: "{{ (states('input_text.birdnet_last_announced').split('|') + ['', '', '', '', ''])[4] }}"
   # The bird photo (or its clip) is what's on the Hub right now.
   showing: >-
     {{ state_attr(hub, 'app_name') == 'Default Media Receiver'
        and state_attr(hub, 'media_title') == states('input_text.birdnet_last_announced').split('|')[0] }}
+  # Voice, clip and bringing a bird back from the clock (it dings) stay off between quiet start and end. The
+  # window may cross midnight.
+  quiet: >-
+    {% set s = states('input_datetime.birdnet_quiet_start')[:5] %}
+    {% set e = states('input_datetime.birdnet_quiet_end')[:5] %}
+    {% set n = now().strftime('%H:%M') %}
+    {{ (n >= s or n < e) if s > e else (s <= n < e) }}
 actions:
   - choose:
       # Photo time is up: back to the clock, unless something else took over the Hub.
@@ -81,25 +89,47 @@ actions:
                 target:
                   entity_id: timer.birdnet_display
 
-      # Always on: re-send the photo that's up (same cast session, so no ding) before the Hub drops it.
+      # Always on: every 5 min re-send the last bird. If it's still up this is the same cast session (no ding) and
+      # stops the Hub dropping it; if the Hub went back to the clock or blank, this brings the bird back (one ding,
+      # so not in quiet time). Never over something else playing on the Hub.
       - conditions:
           - condition: trigger
             id: refresh
-          - "{{ showing and seconds == 0 and not is_state(hub, 'playing') }}"
-          - "{{ '/api/v2/audio/' not in state_attr(hub, 'media_content_id') | string
-                and 'cottage-clip' not in state_attr(hub, 'media_content_id') | string }}"
+          - "{{ seconds == 0 and last_photo != '' and (showing or not quiet) }}"
+          - "{{ state_attr(hub, 'app_name') in [none, 'Default Media Receiver'] and not is_state(hub, 'playing')
+                and states(hub) not in ['unavailable', 'unknown'] }}"
         sequence:
-          - action: media_player.play_media
-            target:
-              entity_id: "{{ hub }}"
-            data:
-              media_content_id: "{{ state_attr(hub, 'media_content_id') }}"
-              media_content_type: image/jpeg
-              extra:
-                metadata:
-                  metadataType: 0
-                  title: "{{ state_attr(hub, 'media_title') }}"
-                  subtitle: "{{ states('input_text.birdnet_last_announced').split('|')[3] | default('') }}"
+          - variables:
+              name: "{{ states('input_text.birdnet_last_announced').split('|')[0] }}"
+              photo: "{{ last_photo }}"
+              subtitle: "{{ (states('input_text.birdnet_last_announced').split('|') + ['', '', '', ''])[3] }}"
+          # The Hub's photo player sometimes wedges: it takes new photos but shows black and reports "idle"
+          # until it's closed. So check the photo is really up, and if not, close the player and send it again
+          # (that new cast session dings, but beats a black screen).
+          - &show_photo
+            sequence:
+              - &cast_photo
+                continue_on_error: true
+                action: media_player.play_media
+                target:
+                  entity_id: "{{ hub }}"
+                data:
+                  media_content_id: "{{ photo }}"
+                  media_content_type: image/jpeg
+                  extra:
+                    metadata:
+                      metadataType: 0
+                      title: "{{ name }}"
+                      subtitle: "{{ subtitle }}"
+              - wait_template: "{{ is_state(hub, 'paused') and state_attr(hub, 'media_title') == name }}"
+                timeout: 5
+              - if: "{{ not wait.completed }}"
+                then:
+                  - action: media_player.turn_off
+                    target:
+                      entity_id: "{{ hub }}"
+                  - delay: 2
+                  - *cast_photo
 
       - conditions:
           - condition: trigger
@@ -115,12 +145,6 @@ actions:
               heard: "{{ as_timestamp(bird.BeginTime, 0) | timestamp_custom('%H:%M') }}"   # 24-hour, HA's time zone
               subtitle: "{{ site }} · {{ heard }} · {{ bird.ScientificName }} · {{ pct }}%"
               last: "{{ states('input_text.birdnet_last_announced').split('|') }}"
-              # Voice and clip stay off between quiet start and end (the window may cross midnight).
-              quiet: >-
-                {% set s = states('input_datetime.birdnet_quiet_start')[:5] %}
-                {% set e = states('input_datetime.birdnet_quiet_end')[:5] %}
-                {% set n = now().strftime('%H:%M') %}
-                {{ (n >= s or n < e) if s > e else (s <= n < e) }}
               # Same species at the same site within 15 min of its last voice/recording: the photo still goes up
               # (better than the clock), but no voice and no recording.
               repeat: >-
@@ -177,20 +201,11 @@ actions:
                   media_player_entity_id: "{{ hub }}"
                   message: "{{ name }} heard{{ ' at the cottage' if cottage else '' }}, {{ pct }} percent sure."
               - delay: 6
-          - if: "{{ photo != '' }}"
+          # A repeat of the bird that's already up stays as it is: every photo swap risks wedging the Hub's player.
+          - if: >-
+              {{ photo != '' and not (repeat and is_state(hub, 'paused') and state_attr(hub, 'media_title') == name) }}
             then:
-              - &show_photo
-                action: media_player.play_media
-                target:
-                  entity_id: "{{ hub }}"
-                data:
-                  media_content_id: "{{ photo }}"
-                  media_content_type: image/jpeg
-                  extra:
-                    metadata:
-                      metadataType: 0
-                      title: "{{ name }}"
-                      subtitle: "{{ subtitle }}"
+              - *show_photo
           # The bird's own recording, louder than the Hub's everyday volume. The cast session is already open
           # (photo or voice), so raising the volume now doesn't make the start-of-session ding louder.
           - if:
