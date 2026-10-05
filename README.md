@@ -31,7 +31,7 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
   only raised once the cast session is open, so the session-start ding stays at the everyday volume.
 - **Photo time:** Default (30 s), 1 minute, 5 minutes or Always on. A timer helper returns the Hub to ambient mode, but
   only if the bird photo is still what's showing. Changing the setting while a bird is up applies to that bird.
-  The Hub drops a still photo by itself after about 10 minutes, so with Always on the last bird is re-sent every 5
+  The Hub drops a still photo by itself after about 10 minutes, so with Always on the last bird is re-sent every 9
   minutes (same cast session, so no ding). If the Hub has gone back to the clock (a reboot, someone else's cast), the
   refresh brings the last bird back, with one ding, so not in quiet time. Turn the automation off to get the Hub's
   usual screens back.

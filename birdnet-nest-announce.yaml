@@ -34,9 +34,10 @@ triggers:
   - trigger: state
     entity_id: input_select.birdnet_display_time
     id: time_changed
-  # "Always on": the Hub drops a still photo after about 10 minutes, so it's re-sent every 5.
+  # "Always on": the Hub drops a still photo after about 10 minutes, so it's re-sent every 9
+  # (each re-send risks a brief blank if the Hub's photo player wedges, so no more often than that).
   - trigger: time_pattern
-    minutes: /5
+    minutes: /9
     id: refresh
 variables:
   hub: media_player.YOUR_NEST_HUB
@@ -89,7 +90,7 @@ actions:
                 target:
                   entity_id: timer.birdnet_display
 
-      # Always on: every 5 min re-send the last bird. If it's still up this is the same cast session (no ding) and
+      # Always on: every 9 min re-send the last bird. If it's still up this is the same cast session (no ding) and
       # stops the Hub dropping it; if the Hub went back to the clock or blank, this brings the bird back (one ding,
       # so not in quiet time). Never over something else playing on the Hub.
       - conditions:
