@@ -7,6 +7,7 @@
 #   input_number.birdnet_recording_volume    Hub volume (%) for the clip only; restored afterwards
 #   input_datetime.birdnet_quiet_start/_end  no voice and no clip in this window (photos still show)
 #   timer.birdnet_display                    returns the Hub to the clock when the photo time is up
+#   input_text.birdnet_last_announced        last bird (name|time|site|subtitle): repeat filter and Always-on refresh
 #   input_select.birdnet_sites               whose birds to show: Home / Cottage / Both (second site: webhook below)
 # https://github.com/jchisholm59/birdnet-go-nest-hub - see README.md for setup.
 # Before pasting: set the MQTT topic, the hub entity, the BirdNET-Go address, the TTS entity and (for a second
@@ -33,12 +34,18 @@ triggers:
   - trigger: state
     entity_id: input_select.birdnet_display_time
     id: time_changed
+  # "Always on": the Hub drops a still photo after about 10 minutes, so it's re-sent every 5.
+  - trigger: time_pattern
+    minutes: /5
+    id: refresh
 variables:
   hub: media_player.YOUR_NEST_HUB
   birdnet: http://YOUR_BIRDNET_GO:8080   # BirdNET-Go web UI address, for the audio clips
   # Second site only: its BirdNET-Go (as this HA reaches it), and this HA's LAN address (as the Hub reaches it).
   cottage_birdnet: http://YOUR_COTTAGE_BIRDNET_GO
   ha_url: http://YOUR_HA:8123
+  # Draw "Home 08:32" on the photo: needs shell_command.birdnet_tag and birdnet_tag.py (README.md, "Photo tag").
+  tag_photos: false
   seconds: "{{ {'Default (30 s)': 30, '1 minute': 60, '5 minutes': 300}.get(states('input_select.birdnet_display_time'), 0) }}"
   # The bird photo (or its clip) is what's on the Hub right now.
   showing: >-
@@ -74,6 +81,26 @@ actions:
                 target:
                   entity_id: timer.birdnet_display
 
+      # Always on: re-send the photo that's up (same cast session, so no ding) before the Hub drops it.
+      - conditions:
+          - condition: trigger
+            id: refresh
+          - "{{ showing and seconds == 0 and not is_state(hub, 'playing') }}"
+          - "{{ '/api/v2/audio/' not in state_attr(hub, 'media_content_id') | string
+                and 'cottage-clip' not in state_attr(hub, 'media_content_id') | string }}"
+        sequence:
+          - action: media_player.play_media
+            target:
+              entity_id: "{{ hub }}"
+            data:
+              media_content_id: "{{ state_attr(hub, 'media_content_id') }}"
+              media_content_type: image/jpeg
+              extra:
+                metadata:
+                  metadataType: 0
+                  title: "{{ state_attr(hub, 'media_title') }}"
+                  subtitle: "{{ states('input_text.birdnet_last_announced').split('|')[3] | default('') }}"
+
       - conditions:
           - condition: trigger
             id: [detection, cottage]
@@ -85,6 +112,8 @@ actions:
               name: "{{ bird.CommonName }}"
               pct: "{{ ((bird.Confidence | default(0)) * 100) | round | int }}"
               photo: "{{ (bird.BirdImage | default({}, true)).URL | default('', true) }}"
+              heard: "{{ as_timestamp(bird.BeginTime, 0) | timestamp_custom('%H:%M') }}"   # 24-hour, HA's time zone
+              subtitle: "{{ site }} · {{ heard }} · {{ bird.ScientificName }} · {{ pct }}%"
               last: "{{ states('input_text.birdnet_last_announced').split('|') }}"
               # Voice and clip stay off between quiet start and end (the window may cross midnight).
               quiet: >-
@@ -116,7 +145,21 @@ actions:
             target:
               entity_id: input_text.birdnet_last_announced
             data:
-              value: "{{ name }}|{{ as_timestamp(now()) | int }}|{{ site }}"
+              value: "{{ (name ~ '|' ~ (as_timestamp(now()) | int) ~ '|' ~ site ~ '|' ~ subtitle)[:255] }}"
+          # "Home 08:32" drawn in the photo's upper-left corner (shell_command + birdnet_tag.py, see README.md).
+          # If that fails, the plain photo is shown.
+          - if: "{{ tag_photos and photo != '' }}"
+            then:
+              - action: shell_command.birdnet_tag
+                data:
+                  url: "{{ photo }}"
+                  label: "{{ site }} {{ heard }}"
+                response_variable: tagged
+                continue_on_error: true
+              - variables:
+                  photo: >-
+                    {{ ha_url ~ '/local/birdnet/photo.jpg?v=' ~ (bird.detectionId | default(as_timestamp(now()) | int))
+                       if tagged is defined and tagged.returncode | default(1) == 0 else photo }}
           - if:
               - condition: state
                 entity_id: input_boolean.bird_announcements_voice
@@ -143,7 +186,7 @@ actions:
                     metadata:
                       metadataType: 0
                       title: "{{ name }}"
-                      subtitle: "{{ site }} · {{ bird.ScientificName }} · {{ pct }}%"
+                      subtitle: "{{ subtitle }}"
           # The bird's own recording, louder than the Hub's everyday volume. The cast session is already open
           # (photo or voice), so raising the volume now doesn't make the start-of-session ding louder.
           - if:
@@ -207,7 +250,7 @@ actions:
                         metadata:
                           metadataType: 3
                           title: "{{ name }}"
-                          artist: "{{ site }} · {{ bird.ScientificName }} · {{ pct }}%"
+                          artist: "{{ subtitle }}"
                           images: "{{ [{'url': photo}] if photo else [] }}"
                   - wait_template: "{{ is_state(hub, 'playing') }}"
                     timeout: 10

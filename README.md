@@ -30,7 +30,10 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
   only raised once the cast session is open, so the session-start ding stays at the everyday volume.
 - **Photo time:** Default (30 s), 1 minute, 5 minutes or Always on. A timer helper returns the Hub to ambient mode, but
   only if the bird photo is still what's showing. Changing the setting while a bird is up applies to that bird.
-- The subtitle says where the bird was heard ("Home · Cyanocitta cristata · 69%").
+  The Hub drops a still photo by itself after about 10 minutes, so with Always on the photo is re-sent every 5 minutes
+  (same cast session, so no ding).
+- The subtitle says where and when the bird was heard ("Home · 08:32 · Cyanocitta cristata · 69%"), and optionally
+  the same goes on the photo itself, upper left (see "Photo tag").
 - `mode: queued` (max 5), so a burst of detections plays one after another.
 - No confidence filter of its own: it trusts BirdNET-Go's threshold. Add a condition like
   `"{{ bird.Confidence >= 0.8 }}"` if you want one.
@@ -60,6 +63,22 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
 
 Needs a recent Home Assistant (2025.4 or newer: the automation relies on the `variables` action updating a variable
 set earlier in the run).
+
+## Photo tag (optional)
+Draws "Home 08:32" (site and time heard, 24-hour) in a dark box in the photo's upper-left corner. The Hub doesn't show
+the subtitle all the time, so this keeps both on screen. [`birdnet_tag.py`](birdnet_tag.py) fetches the photo, scales
+it to the Hub's 600 px height (so the label stays sharp), stamps it and saves `/config/www/birdnet/photo.jpg`, which
+the Hub loads from HA's `/local/`. It uses only the Python and Pillow that come with Home Assistant. If it fails the
+plain photo is shown.
+
+1. Copy `birdnet_tag.py` to `/config/` (File editor or Studio Code Server add-on). Make sure `/config/www/` exists
+   and existed when HA started.
+2. Add to `configuration.yaml`, check the configuration and restart (the first `shell_command` needs a restart):
+   ```yaml
+   shell_command:
+     birdnet_tag: python3 /config/birdnet_tag.py "{{ url }}" "{{ label }}" /config/www/birdnet/photo.jpg
+   ```
+3. In the automation set `tag_photos: true`, and `ha_url:` to HA's LAN address as the Hub reaches it.
 
 ## A second site (optional)
 Ours is a cottage with its own Home Assistant and BirdNET-Go, joined to home over Tailscale. Its birds show on the
