@@ -16,6 +16,9 @@ entities:
     row:
       entity: input_number.birdnet_recording_volume
       name: Recording volume
+  # Only if you've set up a second site (README.md, "A second site").
+  - entity: input_boolean.birdnet_show_cottage
+    name: Show cottage birds
   - type: section
     label: Quiet time (no voice or recording)
   - entity: input_datetime.birdnet_quiet_start

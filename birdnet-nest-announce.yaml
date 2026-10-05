@@ -7,8 +7,10 @@
 #   input_number.birdnet_recording_volume    Hub volume (%) for the clip only; restored afterwards
 #   input_datetime.birdnet_quiet_start/_end  no voice and no clip in this window (photos still show)
 #   timer.birdnet_display                    returns the Hub to the clock when the photo time is up
+#   input_boolean.birdnet_show_cottage       also show a second site's birds (sent by its HA to the webhook below)
 # https://github.com/jchisholm59/birdnet-go-nest-hub - see README.md for setup.
-# Before pasting: set the MQTT topic, the hub entity, the BirdNET-Go address and the TTS entity below.
+# Before pasting: set the MQTT topic, the hub entity, the BirdNET-Go address, the TTS entity and (for a second
+# site) the webhook ID below. See README.md, "A second site".
 alias: BirdNET-Go → Nest Hub
 description: Show (and optionally speak and play) BirdNET-Go detections on a Nest Hub / Google Cast display.
 mode: queued
@@ -17,6 +19,12 @@ triggers:
   - trigger: mqtt
     topic: birdnet   # your BirdNET-Go MQTT topic (Settings -> Integrations -> MQTT)
     id: detection
+  # A second site's detections (e.g. a cottage), forwarded by its own Home Assistant. Leave as is if you have none.
+  - trigger: webhook
+    webhook_id: YOUR_WEBHOOK_ID   # long and random: it is the only thing guarding this webhook
+    allowed_methods: [POST]
+    local_only: false   # the other site comes in over a VPN/proxy, which HA doesn't count as local
+    id: cottage
   - trigger: event
     event_type: timer.finished
     event_data:
@@ -28,6 +36,9 @@ triggers:
 variables:
   hub: media_player.YOUR_NEST_HUB
   birdnet: http://YOUR_BIRDNET_GO:8080   # BirdNET-Go web UI address, for the audio clips
+  # Second site only: its BirdNET-Go (as this HA reaches it), and this HA's LAN address (as the Hub reaches it).
+  cottage_birdnet: http://YOUR_COTTAGE_BIRDNET_GO
+  ha_url: http://YOUR_HA:8123
   seconds: "{{ {'Default (30 s)': 30, '1 minute': 60, '5 minutes': 300}.get(states('input_select.birdnet_display_time'), 0) }}"
   # The bird photo (or its clip) is what's on the Hub right now.
   showing: >-
@@ -65,13 +76,15 @@ actions:
 
       - conditions:
           - condition: trigger
-            id: detection
+            id: [detection, cottage]
         sequence:
           - variables:
-              bird: "{{ trigger.payload_json }}"
+              cottage: "{{ trigger.id == 'cottage' }}"
+              bird: "{{ trigger.json if cottage else trigger.payload_json }}"
+              site: "{{ 'Cottage' if cottage else 'Home' }}"
               name: "{{ bird.CommonName }}"
-              pct: "{{ (bird.Confidence * 100) | round | int }}"
-              photo: "{{ bird.BirdImage.URL | default('', true) }}"
+              pct: "{{ ((bird.Confidence | default(0)) * 100) | round | int }}"
+              photo: "{{ (bird.BirdImage | default({}, true)).URL | default('', true) }}"
               last: "{{ states('input_text.birdnet_last_announced').split('|') }}"
               # Voice and clip stay off between quiet start and end (the window may cross midnight).
               quiet: >-
@@ -82,9 +95,14 @@ actions:
           # The topic is retained: skip the old message HA gets on restart/reconnect.
           - condition: template
             value_template: "{{ as_timestamp(bird.BeginTime, 0) > as_timestamp(now()) - 120 }}"
-          # Same species at most once per 15 min (a different species always gets through).
+          # Cottage birds only while that's switched on.
           - condition: template
-            value_template: "{{ last | count < 2 or last[0] != name or as_timestamp(now()) - (last[1] | float(0)) > 900 }}"
+            value_template: "{{ not cottage or is_state('input_boolean.birdnet_show_cottage', 'on') }}"
+          # Same species at the same site at most once per 15 min (anything else always gets through).
+          - condition: template
+            value_template: >-
+              {{ last | count < 2 or last[0] != name or (last[2] if last | count > 2 else 'Home') != site
+                 or as_timestamp(now()) - (last[1] | float(0)) > 900 }}
           # Don't talk over music/video someone is casting to the Hub.
           - condition: template
             value_template: "{{ not (is_state(hub, 'playing') and state_attr(hub, 'app_name') != 'Default Media Receiver') }}"
@@ -96,7 +114,7 @@ actions:
             target:
               entity_id: input_text.birdnet_last_announced
             data:
-              value: "{{ name }}|{{ as_timestamp(now()) | int }}"
+              value: "{{ name }}|{{ as_timestamp(now()) | int }}|{{ site }}"
           - if:
               - condition: state
                 entity_id: input_boolean.bird_announcements_voice
@@ -108,7 +126,7 @@ actions:
                   entity_id: tts.google_en_com
                 data:
                   media_player_entity_id: "{{ hub }}"
-                  message: "{{ name }} heard, {{ pct }} percent sure."
+                  message: "{{ name }} heard{{ ' at the cottage' if cottage else '' }}, {{ pct }} percent sure."
               - delay: 6
           - if: "{{ photo != '' }}"
             then:
@@ -123,7 +141,7 @@ actions:
                     metadata:
                       metadataType: 0
                       title: "{{ name }}"
-                      subtitle: "{{ bird.ScientificName }} · {{ pct }}%"
+                      subtitle: "{{ site }} · {{ bird.ScientificName }} · {{ pct }}%"
           # The bird's own recording, louder than the Hub's everyday volume. The cast session is already open
           # (photo or voice), so raising the volume now doesn't make the start-of-session ding louder.
           - if:
@@ -134,45 +152,76 @@ actions:
             then:
               - delay: 3   # the photo gets a moment, and BirdNET-Go time to finish writing the clip
               - variables:
-                  everyday_volume: "{{ state_attr(hub, 'volume_level') }}"
-                  recording_volume: "{{ states('input_number.birdnet_recording_volume') | float(50) / 100 }}"
-                  # Only if we know what to put it back to, and only if it's a real change: the Hub pops up a big
-                  # volume bar on every change, so a recording volume equal to the everyday one skips it entirely.
-                  boost: "{{ everyday_volume is number and (recording_volume - everyday_volume) | abs > 0.01 }}"
-              - if: "{{ boost }}"
+                  clip: "{{ birdnet }}/api/v2/audio/{{ bird.detectionId }}"
+              # The Hub can't reach the cottage's BirdNET-Go (that's over the VPN), so HA fetches the clip into
+              # /config/www/birdnet (Downloader integration, folder "www") and the Hub plays it from HA's /local/.
+              - if: "{{ cottage }}"
                 then:
-                  - action: media_player.volume_set
+                  # Listen for the result before the download starts: a quick download can finish first.
+                  - parallel:
+                      - sequence:
+                          - wait_for_trigger:
+                              - trigger: event
+                                event_type: downloader_download_completed
+                              - trigger: event
+                                event_type: downloader_download_failed
+                            timeout: 20
+                          - variables:
+                              clip: >-
+                                {{ ha_url ~ '/local/birdnet/cottage-clip.wav?v=' ~ bird.detectionId
+                                   if wait.trigger and wait.trigger.event.event_type == 'downloader_download_completed'
+                                   else '' }}
+                      - sequence:
+                          - delay:
+                              milliseconds: 200
+                          - action: downloader.download_file
+                            data:
+                              url: "{{ cottage_birdnet }}/api/v2/audio/{{ bird.detectionId }}"
+                              subdir: birdnet
+                              filename: cottage-clip.wav
+                              overwrite: true
+              - if: "{{ clip != '' }}"
+                then:
+                  - variables:
+                      everyday_volume: "{{ state_attr(hub, 'volume_level') }}"
+                      recording_volume: "{{ states('input_number.birdnet_recording_volume') | float(50) / 100 }}"
+                      # Only if we know what to put it back to, and only if it's a real change: the Hub pops up a big
+                      # volume bar on every change, so a recording volume equal to the everyday one skips it entirely.
+                      boost: "{{ everyday_volume is number and (recording_volume - everyday_volume) | abs > 0.01 }}"
+                  - if: "{{ boost }}"
+                    then:
+                      - action: media_player.volume_set
+                        target:
+                          entity_id: "{{ hub }}"
+                        data:
+                          volume_level: "{{ recording_volume }}"
+                  - action: media_player.play_media
                     target:
                       entity_id: "{{ hub }}"
                     data:
-                      volume_level: "{{ recording_volume }}"
-              - action: media_player.play_media
-                target:
-                  entity_id: "{{ hub }}"
-                data:
-                  media_content_id: "{{ birdnet }}/api/v2/audio/{{ bird.detectionId }}"
-                  media_content_type: audio/wav
-                  extra:
-                    metadata:
-                      metadataType: 3
-                      title: "{{ name }}"
-                      artist: "{{ bird.ScientificName }} · {{ pct }}%"
-                      images: "{{ [{'url': photo}] if photo else [] }}"
-              - wait_template: "{{ is_state(hub, 'playing') }}"
-                timeout: 10
-              - wait_template: "{{ not is_state(hub, 'playing') }}"
-                timeout: 40
-              - if: "{{ boost }}"
-                then:
-                  - action: media_player.volume_set
-                    target:
-                      entity_id: "{{ hub }}"
-                    data:
-                      volume_level: "{{ everyday_volume }}"
-              # The clip ends on a blank player screen: put the photo back for the rest of its time.
-              - if: "{{ photo != '' and state_attr(hub, 'app_name') in [none, 'Default Media Receiver'] }}"
-                then:
-                  - *show_photo
+                      media_content_id: "{{ clip }}"
+                      media_content_type: audio/wav
+                      extra:
+                        metadata:
+                          metadataType: 3
+                          title: "{{ name }}"
+                          artist: "{{ site }} · {{ bird.ScientificName }} · {{ pct }}%"
+                          images: "{{ [{'url': photo}] if photo else [] }}"
+                  - wait_template: "{{ is_state(hub, 'playing') }}"
+                    timeout: 10
+                  - wait_template: "{{ not is_state(hub, 'playing') }}"
+                    timeout: 40
+                  - if: "{{ boost }}"
+                    then:
+                      - action: media_player.volume_set
+                        target:
+                          entity_id: "{{ hub }}"
+                        data:
+                          volume_level: "{{ everyday_volume }}"
+                  # The clip ends on a blank player screen: put the photo back for the rest of its time.
+                  - if: "{{ photo != '' and state_attr(hub, 'app_name') in [none, 'Default Media Receiver'] }}"
+                    then:
+                      - *show_photo
           # Back to the clock after the chosen time; "Always on" leaves it until the next bird.
           - if: "{{ seconds > 0 }}"
             then:

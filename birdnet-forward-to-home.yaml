@@ -1,0 +1,20 @@
+# BirdNET-Go -> home Nest Hub, second-site half (Home Assistant automation).
+# Runs on the OTHER site's Home Assistant (e.g. a cottage). Forwards each fresh BirdNET-Go detection to the home
+# Home Assistant's webhook, where birdnet-nest-announce.yaml shows it labelled "Cottage".
+# Needs rest_command.birdnet_to_home in this HA's configuration.yaml - see README.md, "A second site".
+# Before pasting: set the MQTT topic to this site's BirdNET-Go topic.
+alias: BirdNET-Go → home Nest Hub
+description: Forward this site's BirdNET-Go detections to the home Home Assistant (webhook).
+mode: queued
+max: 10
+triggers:
+  - trigger: mqtt
+    topic: birdnet   # this site's BirdNET-Go MQTT topic
+conditions:
+  # A retained message comes back on every restart/reconnect: forward only fresh detections.
+  - "{{ trigger.payload_json is mapping and as_timestamp(trigger.payload_json.BeginTime, 0) > as_timestamp(now()) - 120 }}"
+actions:
+  - action: rest_command.birdnet_to_home
+    data:
+      payload: "{{ trigger.payload }}"
+    continue_on_error: true

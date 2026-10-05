@@ -11,13 +11,16 @@ Chromecast with a TV). Voice-only speakers get just the spoken part.
 
 BirdNET-Go's models know a few non-birds too. Ours shows the odd **coyote**, which the cats find very interesting.
 
+Optionally it also shows a second site's birds, e.g. a cottage with its own Home Assistant and BirdNET-Go, labelled
+"Cottage" (see [A second site](#a-second-site-optional)).
+
 Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet-go/discussions/4486)
 
 ## What it does
 - Triggers on BirdNET-Go's MQTT topic and uses the detection JSON directly. You don't need extra sensors.
 - **Skips stale messages:** if the topic is retained, HA gets the last detection again on every restart or broker
   reconnect. Anything with a `BeginTime` older than 2 minutes is ignored.
-- Each species at most once per 15 minutes, while a new species always gets through.
+- Each species at most once per 15 minutes per site, while anything else always gets through.
 - Photos around the clock (owls and coyotes come out at night). The voice and the recording are skipped during quiet
   time, 21:00–07:00 by default and set on the card.
 - Doesn't interrupt music or video someone else is casting to the display.
@@ -27,6 +30,7 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
   only raised once the cast session is open, so the session-start ding stays at the everyday volume.
 - **Photo time:** Default (30 s), 1 minute, 5 minutes or Always on. A timer helper returns the Hub to ambient mode, but
   only if the bird photo is still what's showing. Changing the setting while a bird is up applies to that bird.
+- The subtitle says where the bird was heard ("Home · Cyanocitta cristata · 69%").
 - `mode: queued` (max 5), so a burst of detections plays one after another.
 - No confidence filter of its own: it trusts BirdNET-Go's threshold. Add a condition like
   `"{{ bird.Confidence >= 0.8 }}"` if you want one.
@@ -51,7 +55,48 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
    - `hub:` to your display's `media_player.*` entity
    - `birdnet:` to your BirdNET-Go web address (e.g. `http://192.168.1.50:8080`); the Hub fetches the clips from it
    - the `tts.speak` target to any TTS entity you have (e.g. Google Translate's `tts.google_en_com`)
-4. **Card:** on your dashboard, Add card → Manual, and paste [`birdnet-card.yaml`](birdnet-card.yaml).
+4. **Card:** on your dashboard, Add card → Manual, and paste [`birdnet-card.yaml`](birdnet-card.yaml). Leave out the
+   "Show cottage birds" row if you only have one site.
+
+Needs a recent Home Assistant (2025.4 or newer: the automation relies on the `variables` action updating a variable
+set earlier in the run).
+
+## A second site (optional)
+Ours is a cottage with its own Home Assistant and BirdNET-Go, joined to home over Tailscale. Its birds show on the
+home Hub with "Cottage" in the subtitle, "heard at the cottage" in the voice, and their recordings, while the "Show
+cottage birds" toggle is on. The cottage's detections never touch the home MQTT broker.
+
+How it fits together:
+- The cottage HA forwards each fresh detection to a webhook on the home HA
+  ([`birdnet-forward-to-home.yaml`](birdnet-forward-to-home.yaml) plus a `rest_command`).
+- The home automation's webhook trigger runs the same photo / voice / recording / quiet-time / photo-time steps.
+- The Hub can't reach the cottage over the VPN, so for a recording the home HA downloads the cottage clip into
+  `/config/www/birdnet/cottage-clip.wav` (overwritten each time) and the Hub plays it from HA's `/local/`.
+
+Setup:
+1. **Home HA:**
+   - Helper: Toggle "BirdNET show cottage" → `input_boolean.birdnet_show_cottage`.
+   - Integration: **Downloader**, download folder `www` (the folder must exist, and must have existed when HA
+     started, for `/local/` to serve it).
+   - In the automation, set `webhook_id:` to something long and random (it's the only thing guarding the webhook),
+     `cottage_birdnet:` to the cottage BirdNET-Go as the home HA reaches it, and `ha_url:` to the home HA's LAN
+     address as the Hub reaches it (e.g. `http://192.168.1.10:8123`).
+2. **Cottage HA:** add to `configuration.yaml`, then check the configuration and restart (the first `rest_command`
+   needs a restart; later changes only a reload):
+   ```yaml
+   rest_command:
+     birdnet_to_home:
+       url: http://HOME_HA_ADDRESS/api/webhook/YOUR_WEBHOOK_ID   # as the cottage HA reaches the home HA
+       method: POST
+       content_type: application/json
+       payload: "{{ payload }}"
+   ```
+   Then create an automation from [`birdnet-forward-to-home.yaml`](birdnet-forward-to-home.yaml) with the cottage's
+   BirdNET-Go topic.
+3. **Cottage BirdNET-Go:** raise Audio Gain as below, or its recordings will be too quiet too.
+
+Gotcha: after restarting the cottage HA, give MQTT a minute before testing. Our first test birds were lost while it
+reconnected.
 
 ## Notes and gotchas
 - **The ding:** the Hub plays a short chime each time a cast session starts. Google doesn't offer a setting for it.
@@ -67,7 +112,7 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
 - An image cast with `media_player.play_media` (`image/jpeg`) shows up in HA as `paused`. That's normal. The title and
   subtitle on screen come from `extra.metadata` with `metadataType: 0`.
 - A template condition has to render `true`, not just something truthy. `{{ x is mapping and x.URL }}` renders the URL
-  string and fails, so the YAML uses `{{ (bird.BirdImage.URL | default('', true)) != '' }}`.
+  string and fails, so the YAML compares instead: `{{ photo != '' }}`.
 - **Testing:** publish a fake detection to your topic (not retained, with a current `BeginTime`, a `CommonName` and a
   `BirdImage.URL`). Use the right species' photo, or you'll get a chickadee with a crow's picture.
 - The photos come from BirdNET-Go's `BirdImage` (Avicommons and similar sources, 320 px). Their licences and authors
