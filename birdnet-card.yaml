@@ -1,0 +1,24 @@
+# Dashboard card for the BirdNET-Go -> Nest Hub automation: Add card -> Manual, paste this.
+type: entities
+title: BirdNET → Nest Hub
+show_header_toggle: false
+entities:
+  - entity: input_select.birdnet_display_time
+    name: Photo on screen
+  - entity: input_boolean.bird_announcements_voice
+    name: Spoken announcement
+  - entity: input_boolean.birdnet_play_recording
+    name: Play bird's recording
+  - type: conditional
+    conditions:
+      - entity: input_boolean.birdnet_play_recording
+        state: "on"
+    row:
+      entity: input_number.birdnet_recording_volume
+      name: Recording volume
+  - type: section
+    label: Quiet time (no voice or recording)
+  - entity: input_datetime.birdnet_quiet_start
+    name: Starts
+  - entity: input_datetime.birdnet_quiet_end
+    name: Ends
