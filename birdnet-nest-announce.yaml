@@ -7,7 +7,7 @@
 #   input_number.birdnet_recording_volume    Hub volume (%) for the clip only; restored afterwards
 #   input_datetime.birdnet_quiet_start/_end  no voice and no clip in this window (photos still show)
 #   timer.birdnet_display                    returns the Hub to the clock when the photo time is up
-#   input_text.birdnet_last_announced        last bird (name|time|site|subtitle): repeat filter and Always-on refresh
+#   input_text.birdnet_last_announced        last bird (name|time|site|subtitle|photo): repeat filter, refresh, mirror card
 #   input_select.birdnet_sites               whose birds to show: Home / Cottage / Both (second site: webhook below)
 # https://github.com/jchisholm59/birdnet-go-nest-hub - see README.md for setup.
 # Before pasting: set the MQTT topic, the hub entity, the BirdNET-Go address, the TTS entity and (for a second
@@ -121,6 +121,11 @@ actions:
                 {% set e = states('input_datetime.birdnet_quiet_end')[:5] %}
                 {% set n = now().strftime('%H:%M') %}
                 {{ (n >= s or n < e) if s > e else (s <= n < e) }}
+              # Same species at the same site within 15 min of its last voice/recording: the photo still goes up
+              # (better than the clock), but no voice and no recording.
+              repeat: >-
+                {{ last | count > 1 and last[0] == name and (last[2] if last | count > 2 else 'Home') == site
+                   and as_timestamp(now()) - (last[1] | float(0)) <= 900 }}
           # The topic is retained: skip the old message HA gets on restart/reconnect.
           - condition: template
             value_template: "{{ as_timestamp(bird.BeginTime, 0) > as_timestamp(now()) - 120 }}"
@@ -129,11 +134,6 @@ actions:
             value_template: >-
               {{ states('input_select.birdnet_sites') in [site, 'Both']
                  or (not cottage and not has_value('input_select.birdnet_sites')) }}
-          # Same species at the same site at most once per 15 min (anything else always gets through).
-          - condition: template
-            value_template: >-
-              {{ last | count < 2 or last[0] != name or (last[2] if last | count > 2 else 'Home') != site
-                 or as_timestamp(now()) - (last[1] | float(0)) > 900 }}
           # Don't talk over music/video someone is casting to the Hub.
           - condition: template
             value_template: "{{ not (is_state(hub, 'playing') and state_attr(hub, 'app_name') != 'Default Media Receiver') }}"
@@ -141,11 +141,6 @@ actions:
           - action: timer.cancel
             target:
               entity_id: timer.birdnet_display
-          - action: input_text.set_value
-            target:
-              entity_id: input_text.birdnet_last_announced
-            data:
-              value: "{{ (name ~ '|' ~ (as_timestamp(now()) | int) ~ '|' ~ site ~ '|' ~ subtitle)[:255] }}"
           # "Home 08:32" drawn in the photo's upper-left corner (shell_command + birdnet_tag.py, see README.md).
           # If that fails, the plain photo is shown.
           - if: "{{ tag_photos and photo != '' }}"
@@ -160,11 +155,20 @@ actions:
                   photo: >-
                     {{ ha_url ~ '/local/birdnet/photo.jpg?v=' ~ (bird.detectionId | default(as_timestamp(now()) | int))
                        if tagged is defined and tagged.returncode | default(1) == 0 else photo }}
+          # Also what the mirror card (birdnet-mirror-card.yaml) shows, so it's set once the photo is ready.
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.birdnet_last_announced
+            data:
+              # The time is when this species was last announced, so a repeat keeps the old one.
+              value: >-
+                {{ (name ~ '|' ~ (last[1] if repeat else as_timestamp(now()) | int) ~ '|' ~ site ~ '|' ~ subtitle
+                    ~ '|' ~ photo)[:255] }}
           - if:
               - condition: state
                 entity_id: input_boolean.bird_announcements_voice
                 state: "on"
-              - "{{ not quiet }}"
+              - "{{ not quiet and not repeat }}"
             then:
               - action: tts.speak
                 target:
@@ -193,7 +197,7 @@ actions:
               - condition: state
                 entity_id: input_boolean.birdnet_play_recording
                 state: "on"
-              - "{{ not quiet and bird.detectionId is defined }}"
+              - "{{ not quiet and not repeat and bird.detectionId is defined }}"
             then:
               - delay: 3   # the photo gets a moment, and BirdNET-Go time to finish writing the clip
               - variables:

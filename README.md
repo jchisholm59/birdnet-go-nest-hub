@@ -20,7 +20,8 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
 - Triggers on BirdNET-Go's MQTT topic and uses the detection JSON directly. You don't need extra sensors.
 - **Skips stale messages:** if the topic is retained, HA gets the last detection again on every restart or broker
   reconnect. Anything with a `BeginTime` older than 2 minutes is ignored.
-- Each species at most once per 15 minutes per site, while anything else always gets through.
+- Every detection goes up on screen, but the voice and recording only once per 15 minutes per species and site,
+  so a chatty Blue Jay doesn't get announced over and over.
 - Photos around the clock (owls and coyotes come out at night). The voice and the recording are skipped during quiet
   time, 21:00–07:00 by default and set on the card.
 - Doesn't interrupt music or video someone else is casting to the display.
@@ -79,6 +80,12 @@ plain photo is shown.
      birdnet_tag: python3 /config/birdnet_tag.py "{{ url }}" "{{ label }}" /config/www/birdnet/photo.jpg
    ```
 3. In the automation set `tag_photos: true`, and `ha_url:` to HA's LAN address as the Hub reaches it.
+
+## Mirror card (optional)
+[`birdnet-mirror-card.yaml`](birdnet-mirror-card.yaml) shows the last bird sent to the Hub (photo, name, subtitle
+and how long ago) on a dashboard. Handy on a tablet, or when the Hub is away or not working. It reads
+`input_text.birdnet_last_announced`, so it shows exactly what the Hub got, filters included. For a full-screen view,
+add a view of type "Panel (single card)" and paste the card into it (Add card → Manual).
 
 ## A second site (optional)
 Ours is a cottage with its own Home Assistant and BirdNET-Go, joined to home over Tailscale. Its birds show on the

@@ -1,0 +1,21 @@
+# BirdNET mirror: the last bird sent to the Nest Hub, as a dashboard card (for a tablet, or when the Hub is away).
+# Best as the only card in a view of type "Panel (single card)". It updates with each bird the automation shows,
+# so the Home/Cottage and freshness filters apply to it too. See README.md, "Mirror card".
+type: markdown
+text_only: true
+content: >-
+  {% set p = states('input_text.birdnet_last_announced').split('|') %}
+  {% if p | count < 4 %}
+  ## Waiting for the next bird…
+  {% else %}
+  {% set photo = p[4] if p | count > 4 else '' %}
+  {% if '/local/' in photo %}{% set photo = '/local/' ~ photo.split('/local/')[1] %}{% endif %}
+  {% set mins = ((as_timestamp(now()) - as_timestamp(states.input_text.birdnet_last_announced.last_changed)) / 60) | int %}
+  {% if photo %}<img src="{{ photo }}" width="100%">{% endif %}
+
+  # {{ p[0] }}
+
+  ### {{ p[3] }}
+
+  {{ 'Just now' if mins < 1 else (mins ~ ' min ago' if mins < 60 else (mins // 60) ~ ' h ' ~ (mins % 60) ~ ' min ago') }}
+  {% endif %}
