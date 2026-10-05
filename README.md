@@ -57,6 +57,12 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
 - **The ding:** the Hub plays a short chime each time a cast session starts. Google doesn't offer a setting for it.
   Muting around the cast removes it, but the Hub then shows big "Media off" / "Media on" panels on every mute change,
   which is worse. Turn the Hub's volume down instead, and use "Recording volume" to hear the birds.
+- **Quiet clips:** BirdNET-Go's clips can be very quiet. Ours measured −45 to −50 LUFS (normal audio is around −14 to
+  −16), so even at full Hub volume a bird was hard to hear. Fix it at the source: BirdNET-Go → Settings → Audio →
+  Recording → **Audio Gain** (15 dB here) only affects saved clips, not detection. Our clips went to about −24 LUFS,
+  which is loud enough to play at the Hub's everyday volume.
+- **The volume bar:** the Hub also pops up a big volume bar on every volume change. Set "Recording volume" to the
+  Hub's everyday volume and the automation skips the change, so there's no bar.
 - If HA restarts in the middle of a recording, the Hub keeps the recording volume. Set it back by hand.
 - An image cast with `media_player.play_media` (`image/jpeg`) shows up in HA as `paused`. That's normal. The title and
   subtitle on screen come from `extra.metadata` with `metadataType: 0`.

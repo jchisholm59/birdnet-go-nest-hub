@@ -135,14 +135,17 @@ actions:
               - delay: 3   # the photo gets a moment, and BirdNET-Go time to finish writing the clip
               - variables:
                   everyday_volume: "{{ state_attr(hub, 'volume_level') }}"
-              # Only if we know what to put it back to.
-              - if: "{{ everyday_volume is number }}"
+                  recording_volume: "{{ states('input_number.birdnet_recording_volume') | float(50) / 100 }}"
+                  # Only if we know what to put it back to, and only if it's a real change: the Hub pops up a big
+                  # volume bar on every change, so a recording volume equal to the everyday one skips it entirely.
+                  boost: "{{ everyday_volume is number and (recording_volume - everyday_volume) | abs > 0.01 }}"
+              - if: "{{ boost }}"
                 then:
                   - action: media_player.volume_set
                     target:
                       entity_id: "{{ hub }}"
                     data:
-                      volume_level: "{{ states('input_number.birdnet_recording_volume') | float(50) / 100 }}"
+                      volume_level: "{{ recording_volume }}"
               - action: media_player.play_media
                 target:
                   entity_id: "{{ hub }}"
@@ -159,7 +162,7 @@ actions:
                 timeout: 10
               - wait_template: "{{ not is_state(hub, 'playing') }}"
                 timeout: 40
-              - if: "{{ everyday_volume is number }}"
+              - if: "{{ boost }}"
                 then:
                   - action: media_player.volume_set
                     target:
