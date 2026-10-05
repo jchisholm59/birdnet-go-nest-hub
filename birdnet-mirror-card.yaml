@@ -3,7 +3,7 @@
 # so the Home/Cottage and freshness filters apply to it too. See README.md, "Mirror card".
 type: markdown
 text_only: true
-content: >-
+content: |-
   {% set p = states('input_text.birdnet_last_announced').split('|') %}
   {% if p | count < 4 %}
   ## Waiting for the next bird…
