@@ -56,15 +56,16 @@ Community thread: [tphakala/birdnet-go#4486](https://github.com/tphakala/birdnet
    - `birdnet:` to your BirdNET-Go web address (e.g. `http://192.168.1.50:8080`); the Hub fetches the clips from it
    - the `tts.speak` target to any TTS entity you have (e.g. Google Translate's `tts.google_en_com`)
 4. **Card:** on your dashboard, Add card → Manual, and paste [`birdnet-card.yaml`](birdnet-card.yaml). Leave out the
-   "Show cottage birds" row if you only have one site.
+   "Birds from" row if you only have one site.
 
 Needs a recent Home Assistant (2025.4 or newer: the automation relies on the `variables` action updating a variable
 set earlier in the run).
 
 ## A second site (optional)
 Ours is a cottage with its own Home Assistant and BirdNET-Go, joined to home over Tailscale. Its birds show on the
-home Hub with "Cottage" in the subtitle, "heard at the cottage" in the voice, and their recordings, while the "Show
-cottage birds" toggle is on. The cottage's detections never touch the home MQTT broker.
+home Hub with "Cottage" in the subtitle, "heard at the cottage" in the voice, and their recordings. "Birds from" on
+the card picks Home, Cottage or Both (Cottage alone is handy while we're away from home). The cottage's detections
+never touch the home MQTT broker.
 
 How it fits together:
 - The cottage HA forwards each fresh detection to a webhook on the home HA
@@ -75,7 +76,7 @@ How it fits together:
 
 Setup:
 1. **Home HA:**
-   - Helper: Toggle "BirdNET show cottage" → `input_boolean.birdnet_show_cottage`.
+   - Helper: Dropdown "BirdNET sites" → `input_select.birdnet_sites`, options exactly `Home`, `Cottage`, `Both`.
    - Integration: **Downloader**, download folder `www` (the folder must exist, and must have existed when HA
      started, for `/local/` to serve it).
    - In the automation, set `webhook_id:` to something long and random (it's the only thing guarding the webhook),

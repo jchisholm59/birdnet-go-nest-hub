@@ -7,7 +7,7 @@
 #   input_number.birdnet_recording_volume    Hub volume (%) for the clip only; restored afterwards
 #   input_datetime.birdnet_quiet_start/_end  no voice and no clip in this window (photos still show)
 #   timer.birdnet_display                    returns the Hub to the clock when the photo time is up
-#   input_boolean.birdnet_show_cottage       also show a second site's birds (sent by its HA to the webhook below)
+#   input_select.birdnet_sites               whose birds to show: Home / Cottage / Both (second site: webhook below)
 # https://github.com/jchisholm59/birdnet-go-nest-hub - see README.md for setup.
 # Before pasting: set the MQTT topic, the hub entity, the BirdNET-Go address, the TTS entity and (for a second
 # site) the webhook ID below. See README.md, "A second site".
@@ -95,9 +95,11 @@ actions:
           # The topic is retained: skip the old message HA gets on restart/reconnect.
           - condition: template
             value_template: "{{ as_timestamp(bird.BeginTime, 0) > as_timestamp(now()) - 120 }}"
-          # Cottage birds only while that's switched on.
+          # Only the sites picked on the card. No dropdown (one site only) means home birds.
           - condition: template
-            value_template: "{{ not cottage or is_state('input_boolean.birdnet_show_cottage', 'on') }}"
+            value_template: >-
+              {{ states('input_select.birdnet_sites') in [site, 'Both']
+                 or (not cottage and not has_value('input_select.birdnet_sites')) }}
           # Same species at the same site at most once per 15 min (anything else always gets through).
           - condition: template
             value_template: >-
